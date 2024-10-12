@@ -88,7 +88,7 @@ def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes):
             a_xyz_fill = torch.gather(dm, 2, a_idx)
             enda = min(a_sel[j], a_xyz_fill.shape[2])
             a_xyz[:, :, bega : bega + enda] = a_xyz_fill
-            a_dist[:, :, bega : bega + enda] = sorted_dists[ :, :, : a_sel[j]]
+            a_dist[:, :, bega : bega + enda] = sorted_dists[:, :, : a_sel[j]]
     # since we sort the distances according to closest atoms, we also
     # have to sort the s(x),s(y),s(z) according to closest atoms
     # does the order of scaling matter here?
