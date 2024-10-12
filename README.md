@@ -1,5 +1,5 @@
 # TurtleNNP
-TurtleNNP is a slow  implementation of neural network potentials aimed at ML/MM applications.
+TurtleNNP is a lightweight implementation of neural network potentials aimed at ML/MM applications.
 
 The software is based on the following paper:
 
