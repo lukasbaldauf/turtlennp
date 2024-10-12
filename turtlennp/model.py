@@ -85,10 +85,10 @@ def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes):
                 .unsqueeze(-1)
                 .expand(-1, -1, -1, 3)
             )
-            a_xyz[:, :, bega : bega + a_sel[j]] = torch.gather(dm, 2, a_idx)
-            a_dist[:, :, bega : bega + a_sel[j]] = sorted_dists[
-                :, :, : a_sel[j]
-            ]
+            a_xyz_fill = torch.gather(dm, 2, a_idx)
+            enda = min(a_sel[j], a_xyz_fill.shape[2])
+            a_xyz[:, :, bega : bega + enda] = a_xyz_fill
+            a_dist[:, :, bega : bega + enda] = sorted_dists[ :, :, : a_sel[j]]
     # since we sort the distances according to closest atoms, we also
     # have to sort the s(x),s(y),s(z) according to closest atoms
     # does the order of scaling matter here?
@@ -193,6 +193,7 @@ class Model(nn.Module):
         self.typemap = typemap
         self.cutoff = cutoff
         self.dynamic_subsel = dynamic_subsel
+        self.device = device
         self.norm = torch.zeros(
             (len(self.sel), sum(self.sel) + 3 * sum(self.a_sel), 2),
             device=device,
