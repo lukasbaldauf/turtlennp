@@ -91,10 +91,10 @@ def train_model(m, xyz, frc, at, box, opts, device, logfile="out.log"):
                 )
             )
             msg = (
-                f"{epoch} {losst.item()} {loss.item()}",
-                f"{torch.mean(torch.abs(frci[:, opts['subsel']])).item()}",
-                f"{torch.mean(torch.abs(frc[idx][:, opts['subsel']]))}",
-                f"{scheduler.get_last_lr()[0]}",
+                f"{epoch} {losst.item()} {loss.item()}"
+                f"{torch.mean(torch.abs(frci[:, opts['subsel']])).item()}"
+                f"{torch.mean(torch.abs(frc[idx][:, opts['subsel']]))}"
+                f"{scheduler.get_last_lr()[0]}"
             )
             print(msg)
             with open(logfile, "a") as wfile:
