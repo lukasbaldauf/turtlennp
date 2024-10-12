@@ -1,4 +1,4 @@
-# TurtleNNP
+# :turtle: TurtleNNP 🕸️
 TurtleNNP is a lightweight implementation of neural network potentials aimed at ML/MM applications.
 
 ## Citations
