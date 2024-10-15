@@ -3,7 +3,7 @@ import torch
 
 from turtlennp.model import (
     Model,
-    get_dm_dist_b,
+    get_dm_dist,
     get_local_frame_vectors,
 )
 
@@ -12,32 +12,44 @@ def get_model0():
     """A toy system for tests with 1 linear layer + bias."""
     xyz = torch.tensor(
         [
-            [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [1.0, 1.0, 0.0],
-            ]
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
         ]
     )
 
     typemap = {"Ar": 0}
-    at = torch.zeros((1, xyz.shape[1]))
+    at = torch.zeros((xyz.shape[0]))
     cutoff = 10.0
     box_size = 100.0
-    sel = [len(at[0]) - 1]
-    a_sel = [len(at[0]) - 1]
+    sel = [len(at) - 1]
+    a_sel = [len(at) - 1]
     model = Model(typemap, sel, a_sel=a_sel, cutoff=cutoff, layer_sizes=[1])
     return model, xyz, cutoff, box_size, at
+
+def get_model1():
+    xyz = torch.tensor([
+        [-1.0259, -1.0782,  0.0806],
+        [-0.4245, -0.0751,  0.2390],
+        [ 1.2003,  0.2606, -0.9740],
+        [ 1.0774, -0.0266,  0.1817],
+        [-0.8254,  0.9214,  0.4744]], requires_grad = True)
+
+    at = torch.tensor([3, 1, 1, 2, 0])
+    box = torch.tensor([1e9,1e9,1e9])
+    model = Model({'H':0,'C':1,'O':3, 'N':2},[3,3,3,3],a_sel = [2,2,2,2])
+
+    return model, xyz, box_size, at
 
 
 def test_descriptors_model0():
     """Test that we get the expected descriptors from a toy system."""
     model, xyz, cutoff, box_size, at = get_model0()
-    dm, dist = get_dm_dist_b(xyz, box_size)
+    dm, dist = get_dm_dist(xyz, box_size)
     dv = get_local_frame_vectors(
-        xyz, dm, dist, model.cutoff, model.sel, model.a_sel, at
-    )[0]
+        xyz, dm, dist, model.cutoff, model.sel, model.a_sel, at, [],
+    )
     dv_model0 = np.array(
         [
             1.0,
@@ -71,5 +83,8 @@ def test_calculate_ef_model0():
     xyzi = xyz.expand(N, -1, -1).detach().clone()
     xyzi[:, 3, :2] = dists.unsqueeze(1).expand(N, 2)
     xyzi.requires_grad = True
-    e, f = model.calculate_ef(xyzi, at.expand(N, -1), box_size, subsel=[0, 3])
-    assert np.allclose(e.detach().numpy(), 2 / (2 ** (1 / 2) * dists))
+    e = np.zeros(N)
+    for i in range(N):
+        ei, _ = model.calculate_ef(xyzi[i], at, box_size, subsel=[0, 3])
+        e[i] = ei
+    assert np.allclose(e, 2 / (2 ** (1 / 2) * dists))
