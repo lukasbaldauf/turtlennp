@@ -55,7 +55,11 @@ def normalize(m, datasets, N=[100], mode=["linear"]):
                 raise ValueError("No such normalizeation mode:", mode)
             dv = m.calculate_ef(xyz, at, box, subsel=ss, descriptors_only=True)
             dv = dv.cpu().detach().numpy()
-            for k, atk in enumerate(at[ss]):
+            if ss:
+                atnp = at[ss]
+            else:
+                atnp = at
+            for k, atk in enumerate(atnp):
                 atk = m.typemap[atk.item()]
                 aggs[atk] = update(aggs[atk], dv[k])
 
