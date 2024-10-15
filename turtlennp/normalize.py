@@ -32,36 +32,32 @@ def finalize(existing_aggregate):
         return mean, variance, sample_variance
 
 
-def normalize(m, xyz_arr, at, subsel, box_size, N=None):
+def normalize(m, datasets, N=[100], mode=["linear"]):
     """Perform the normalization.
 
     We use one aggregate[i,j] for each atom type i and feature j
     """
-    N = xyz_arr.shape[0] if N is None else N
     aggs = np.array(
         [
             np.array(
                 [(0, 0.0, 0.0) for i in range(sum(m.sel) + 3 * sum(m.a_sel))]
             )
-            for j in range(3)
+            for j in range(len(m.sel))
         ]
     )
-    atnp = at[subsel]
-    for i in tqdm.tqdm(range(N)):
-        dv = (
-            m.calculate_ef(
-                xyz_arr[i : i + 1],
-                at.unsqueeze(0),
-                box_size,
-                subsel=subsel,
-                descriptors_only=True,
-            )[0]
-            .cpu()
-            .detach()
-            .numpy()
-        )
-        for j, atj in enumerate(atnp):
-            aggs[atj] = update(aggs[atj], dv[j])
+    for i, dataset in enumerate(datasets):
+        for j in tqdm.tqdm(range(N[i])):
+            if mode[i] == "linear":
+                xyz, _, at, box, ss = dataset.get_sample(j)
+            elif mode[i] == "random":
+                xyz, _, at, box, ss = dataset.get_random_sample()
+            else:
+                raise ValueError("No such normalizeation mode:", mode)
+            dv = m.calculate_ef(xyz, at, box, subsel=ss, descriptors_only=True)
+            dv = dv.cpu().detach().numpy()
+            for k, atk in enumerate(at[ss]):
+                atk = m.typemap[atk.item()]
+                aggs[atk] = update(aggs[atk], dv[k])
 
     # mean, variance, sample_variance
     res = np.zeros((len(m.sel), aggs.shape[1], 3))

@@ -5,6 +5,7 @@ from torch import nn
 def get_dm_dist(xyz, box_size):
     """
     Calculate the distance matrix and the distance from atom coordinates.
+
     Args:
         xyz: Tensor of shape (N, 3) containing the coordinates of the atoms.
         box_size: Float or Tensor containing the length of the box.
@@ -22,9 +23,7 @@ def get_dm_dist(xyz, box_size):
 
 
 def get_dm_dist_subsel(xyz, box_size, subsel):
-    """
-    Same as get_dm_dist but with subsel.
-    """
+    """Calculate distances like get_dm_dist but with subsel."""
     N, D = xyz.size()
     N_ = len(subsel)
     x = xyz[subsel, :].unsqueeze(1).expand(N_, N, D)
@@ -35,7 +34,9 @@ def get_dm_dist_subsel(xyz, box_size, subsel):
     return dm, dist
 
 
-def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes, subsel):
+def get_local_frame_vectors(
+    xyz, dm, dist, cutoff, sel, a_sel, atomtypes, subsel
+):
     """Get the local coordinate descriptor defined by the DeePMD model."""
     epsilon = 1e-16  # why not 1e-16?
     N_, N = dist.size()
@@ -70,12 +71,14 @@ def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes, subsel
             conc_dists = torch.hstack((local_frame_dist, sorted_dists[:, :2]))
             conc_indices = torch.hstack((local_frame_idx, sorted_idx[:, :2]))
             local_frame_dist, sorting_indices = torch.sort(conc_dists, dim=1)
-            local_frame_idx = torch.gather(conc_indices, dim=1, index=sorting_indices)
-            local_frame_idx = local_frame_idx[:,:2]
-            local_frame_dist = local_frame_dist[:,:2]
+            local_frame_idx = torch.gather(
+                conc_indices, dim=1, index=sorting_indices
+            )
+            local_frame_idx = local_frame_idx[:, :2]
+            local_frame_dist = local_frame_dist[:, :2]
 
         nearest_dists = sorted_dists[:, :selj]
-        # todo: remove 'inf' here, we dont need 1/inf to get 0.0, just use some indexing
+        # TODO: remove 'inf' here, we dont need 1/inf to get 0.0
         distance_block = 1 / (nearest_dists + epsilon)
         bega = sum(a_sel[:j])
         descriptor_dists[:, beg : beg + distance_block.shape[1]] = (
@@ -83,11 +86,7 @@ def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes, subsel
         )
         beg += sel[j]  # distance_block.shape[2]
         if a_sel:
-            a_idx = (
-                sorted_idx[:, : a_sel[j]]
-                .unsqueeze(-1)
-                .expand(-1, -1, 3)
-            )
+            a_idx = sorted_idx[:, : a_sel[j]].unsqueeze(-1).expand(-1, -1, 3)
             a_xyz_fill = torch.gather(dm, 1, a_idx)
             enda = min(a_sel[j], a_xyz_fill.shape[1])
             a_xyz[:, bega : bega + enda] = a_xyz_fill
@@ -132,6 +131,8 @@ def get_local_frame_vectors(xyz, dm, dist, cutoff, sel, a_sel, atomtypes, subsel
 
 
 class Model(nn.Module):
+    """Neural network potential."""
+
     def __init__(
         self,
         typemap: dict[str, int],
@@ -143,6 +144,8 @@ class Model(nn.Module):
         dynamic_subsel: bool = False,
     ):
         """
+        Initialize the model.
+
         TODO: how to treat transfereability? That is, can subsel,
             dynamic subsel change after training? Usually it wouldn't right?
 
@@ -223,7 +226,7 @@ class Model(nn.Module):
     def calculate_ef(
         self,
         xyz: torch.tensor,
-        atomtypes: torch.tensor,
+        atomic_numbers: torch.tensor,
         box_size: torch.tensor,
         subsel: list = [],
         attach_grad: bool = False,
@@ -240,6 +243,9 @@ class Model(nn.Module):
 
         """
         # calculate the distances and distance_matrices
+        atomtypes = torch.tensor(
+            [self.typemap[i.item()] for i in atomic_numbers]
+        )
         if self.dynamic_subsel or len(subsel) == 0:
             dm, dist = get_dm_dist(xyz, box_size)
 
@@ -248,21 +254,36 @@ class Model(nn.Module):
 
         # calculate descriptors
         descriptors = get_local_frame_vectors(
-            xyz, dm, dist, self.cutoff, self.sel, self.a_sel, atomtypes, subsel,
+            xyz,
+            dm,
+            dist,
+            self.cutoff,
+            self.sel,
+            self.a_sel,
+            atomtypes,
+            subsel,
         )
         if descriptors_only:
             return descriptors
 
         # standardize the inputs
         for j in range(len(self.sel)):
-            descriptors[atomtypes[subsel] == j] = (
-                descriptors[atomtypes[subsel] == j] - self.norm[j, :, 0]
-            ) / self.norm[j, :, 1]
+            if len(subsel) == 0:
+                descriptors[atomtypes == j] = (
+                    descriptors[atomtypes == j] - self.norm[j, :, 0]
+                ) / self.norm[j, :, 1]
+            else:
+                descriptors[atomtypes[subsel] == j] = (
+                    descriptors[atomtypes[subsel] == j] - self.norm[j, :, 0]
+                ) / self.norm[j, :, 1]
 
         # Compute energy in a vectorized manner
         energies = torch.zeros(dist.shape[0], device=xyz.device)
         for t, network in enumerate(self.networks):
-            mask = atomtypes[subsel] == t
+            if len(subsel) == 0:
+                mask = atomtypes == t
+            else:
+                mask = atomtypes[subsel] == t
             if len(mask) > 0:
                 energies[mask] = network(descriptors[mask]).squeeze()
         energy = torch.sum(energies)

@@ -2,35 +2,45 @@ import numpy as np
 import torch
 from torch import optim
 
+from turtlennp.dataset import *
 from turtlennp.model import Model
 from turtlennp.normalize import normalize
 
 
-def load_data(at_map, device):
-    """Loads the dataset including coordinates, forces, and energies."""
-    xyz = torch.tensor(np.load("xyz.npy"), requires_grad=True, device=device)
-    frc = torch.tensor(np.load("frc.npy"), device=device)
-    # ene = torch.tensor(np.load("ene.npy"), device=device) * 27.210
-    ene = None
-    box = torch.tensor(np.load("box.npy"), device=device)
-    at = torch.tensor([at_map[i] for i in np.load("at.npy")], device=device)
-
-    return xyz, frc, ene, box, at
+def loss_subsel(f, f0, subsel):
+    if subsel:
+        loss = torch.sqrt(torch.mean((f[subsel, :] - f0[subsel, :]) ** 2))
+    else:
+        loss = torch.sqrt(torch.mean((f - f0) ** 2))
+    return loss
 
 
-def normalize_data(model, xyz, box, at, opts):
-    """Initializes the model and sets up parameters."""
-    res = normalize(model, xyz, at, opts["subsel"], box, N=100)
-    np.save(f"res_{opts['comment']}", res)
-    model.norm = torch.tensor(
-        np.load(f"res_{opts['comment']}.npy")[:, :, :2],
-        dtype=xyz.dtype,
-        device=model.device,
-    )
-    model.norm[:, :, 1] = torch.clip(model.norm[:, :, 1], 0.01)
+def normalize_features(model, datasets, opts):
+    """Standardize the dataset features."""
+    if opts["norm_load"]:
+        model.norm = torch.tensor(
+            np.load(opts["norm_load"])[:, :, :2],
+            device=model.device,
+            dtype=opts["dtype"],
+        )
+        model.norm[:, :, 1] = torch.clip(model.norm[:, :, 1], 0.01)
+    else:
+        for i, dataset in enumerate(datasets):
+            nsamples = dataset.Nsamples
+            if opts["norm_N"][i] > nsamples:
+                opts["norm_N"][i] = nsamples
+                print(f"[INFO]  opts['norm_N'][i] > {nsamples} in {dataset}")
+        res = normalize(
+            model, datasets, N=opts["norm_N"], mode=opts["norm_mode"]
+        )
+        np.save(f"res_{opts['comment']}", res)
+        model.norm = torch.tensor(
+            res[:, :, :2], device=model.device, dtype=opts["dtype"]
+        )
+        model.norm[:, :, 1] = torch.clip(model.norm[:, :, 1], 0.01)
 
 
-def train_model(m, xyz, frc, at, box, opts, device, logfile="out.log"):
+def train_model(m, datasets, opts, device, logfile="out.log"):
     """Trains the model."""
     params_to_train = []
     for atomic_network in m.networks:
@@ -40,8 +50,9 @@ def train_model(m, xyz, frc, at, box, opts, device, logfile="out.log"):
         optimizer, gamma=opts["gamma"]
     )
 
-    idxt = opts["test_frames"]  # Validation example index
-    xyzt = xyz[idxt].clone().detach().requires_grad_(True)
+    t_idx = opts["test_frame"]  # Validation example index
+    t_set = opts["test_dataset"]
+    xyzt, frct, att, boxt, subselt = datasets[t_set].get_sample(t_idx)
 
     with open(logfile, "a") as wfile:
         wfile.write(str(opts) + "\n")
@@ -55,46 +66,35 @@ def train_model(m, xyz, frc, at, box, opts, device, logfile="out.log"):
         optimizer.zero_grad()
 
         # Random batch selection
-        idx = torch.tensor(
-            np.random.choice(len(xyz), opts["batch_size"], replace=False)
-        )
-        xyzi = xyz[idx].clone().detach().requires_grad_(True)
+        dataset = datasets[np.random.randint(len(datasets))]
+        xyzi, frci, at, box, subsel = dataset.get_random_sample()
 
         # Model prediction
-        energy, frci = m.calculate_ef(
+        epred, fpred = m.calculate_ef(
             xyzi,
-            at.expand(opts["batch_size"], at.shape[0]),
+            at,
             box,
-            subsel=opts["subsel"],
+            subsel=subsel,
             attach_grad=True,
         )
-        loss = torch.sqrt(
-            torch.mean(
-                (frci[:, opts["subsel"], :] - frc[idx][:, opts["subsel"], :])
-                ** 2
-            )
-        )
+
+        loss = loss_subsel(fpred, frci, subsel)
         loss.backward()
 
         # Periodic logging and saving
         if epoch % opts["log_every"] == 0:
-            et, frct = m.calculate_ef(
+            etest, ftest = m.calculate_ef(
                 xyzt,
-                at.expand(len(idxt), at.shape[0]),
-                box,
-                subsel=opts["subsel"],
+                att,
+                boxt,
+                subsel=subselt,
             )
-            losst = torch.sqrt(
-                torch.mean(
-                    (frct[:, opts["subsel"]] - frc[idxt][:, opts["subsel"], :])
-                    ** 2
-                )
-            )
+            losst = loss_subsel(ftest, frct, subsel)
             msg = (
                 f"{epoch} {losst.item()} {loss.item()} "
-                f"{torch.mean(torch.abs(frci[:, opts['subsel']])).item()} "
-                f"{torch.mean(torch.abs(frc[idx][:, opts['subsel']]))} "
-                f"{scheduler.get_last_lr()[0]} "
+                f"{torch.mean(torch.abs(fpred[subsel])).item()} "
+                f"{torch.mean(torch.abs(frci[subsel]))} "
+                f"{scheduler.get_last_lr()[0]}"
             )
             print(msg)
             with open(logfile, "a") as wfile:
@@ -112,9 +112,7 @@ def train_model(m, xyz, frc, at, box, opts, device, logfile="out.log"):
 
 
 def main():
-    device = torch.device("cpu")
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+    dtype = torch.float32
 
     # Configuration options
     opts = {
@@ -126,19 +124,31 @@ def main():
         "gamma": 0.9,  # scale lr by this factor every 'every' steps
         "lr_every": 1000,  # update lr every this many steps
         "batch_size": 1,  # nr. of frames to pass treat each iteration
-        "a_sel": [4, 4, 4],  # angular info of the N nearest atoms of type i
-        "sel": [4, 4, 4],  # radial info of N nearest atoms of type i
-        "at_map": {"H": 0, "C": 1, "O": 2},  # just to save it as a model prop
+        "a_sel": [4, 4, 4, 4],  # angular info of the N nearest atoms of type i
+        "sel": [4, 4, 4, 4],  # radial info of N nearest atoms of type i
+        "at_map": {1: 0, 6: 1, 7: 2, 8: 3},  # just to save it as a model prop
         "epochs": int(2e6),  # number of training loops
         # if given, we continue training with this model
-        "restart_model": "model_diels_very_small.pt",
+        "restart_model": False,
+        "device": "cpu",
+        "num_threads": 1,
+        "dtype": dtype,
         "save_every": 1000,  # save model every this many steps
         "log_every": 100,  # log output every this many steps
-        "test_frames": [10],  # test set used to calculate errors
+        "test_frame": 3,  # [4,2],
+        "test_dataset": 0,
+        "norm_load": False,  # "res_diels_very_small.npy", #False,
+        "norm_N": [10],
+        "sel_prob": [1.0],
+        "norm_mode": ["linear"],
     }
 
-    # allowing different number of atoms per frame would also work
-    xyz, frc, ene, box, at = load_data(opts["at_map"], device)
+    device = torch.device(opts["device"])
+    torch.set_num_threads(opts["num_threads"])
+    torch.set_num_interop_threads(opts["num_threads"])
+
+    # trans1xdat = DatasetTransition1x(".", device)
+    datasets = [DatasetDiels(".", device)]
 
     if opts["restart_model"]:
         model = torch.load(opts["restart_model"])
@@ -152,9 +162,11 @@ def main():
             layer_sizes=opts["architecture"],
             device=device,
         )
-        normalize_data(model, xyz, box, at, opts)
+        normalize_features(model, datasets, opts)
 
-    train_model(model, xyz, frc, at, box, opts, device)
+    # load norm if we have precomputed it
+    # TODO: assert shape
+    train_model(model, datasets, opts, device)
 
 
 if __name__ == "__main__":
