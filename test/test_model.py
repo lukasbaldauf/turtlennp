@@ -3,8 +3,6 @@ import torch
 
 from turtlennp.model import (
     Model,
-    get_dm_dist,
-    get_local_frame_vectors,
 )
 
 
@@ -19,8 +17,8 @@ def get_model0():
         ]
     )
 
-    typemap = {"Ar": 0}
-    at = torch.zeros((xyz.shape[0]))
+    typemap = {1: 0}
+    at = torch.tensor([1 for i in range(xyz.shape[0])])
     cutoff = 10.0
     box_size = 100.0
     sel = [len(at) - 1]
@@ -28,28 +26,30 @@ def get_model0():
     model = Model(typemap, sel, a_sel=a_sel, cutoff=cutoff, layer_sizes=[1])
     return model, xyz, cutoff, box_size, at
 
+
 def get_model1():
-    xyz = torch.tensor([
-        [-1.0259, -1.0782,  0.0806],
-        [-0.4245, -0.0751,  0.2390],
-        [ 1.2003,  0.2606, -0.9740],
-        [ 1.0774, -0.0266,  0.1817],
-        [-0.8254,  0.9214,  0.4744]], requires_grad = True)
+    xyz = torch.tensor(
+        [
+            [-1.0259, -1.0782, 0.0806],
+            [-0.4245, -0.0751, 0.2390],
+            [1.2003, 0.2606, -0.9740],
+            [1.0774, -0.0266, 0.1817],
+            [-0.8254, 0.9214, 0.4744],
+        ],
+        requires_grad=True,
+    )
 
-    at = torch.tensor([3, 1, 1, 2, 0])
-    box = torch.tensor([1e9,1e9,1e9])
-    model = Model({'H':0,'C':1,'O':3, 'N':2},[3,3,3,3],a_sel = [2,2,2,2])
+    at = torch.tensor([8, 6, 6, 7, 1])
+    box = torch.tensor([1e9, 1e9, 1e9])
+    model = Model({1: 0, 6: 1, 8: 3, 7: 2}, [3, 3, 3, 3], a_sel=[2, 2, 2, 2])
 
-    return model, xyz, box_size, at
+    return model, xyz, box, at
 
 
 def test_descriptors_model0():
     """Test that we get the expected descriptors from a toy system."""
     model, xyz, cutoff, box_size, at = get_model0()
-    dm, dist = get_dm_dist(xyz, box_size)
-    dv = get_local_frame_vectors(
-        xyz, dm, dist, model.cutoff, model.sel, model.a_sel, at, [],
-    )
+    dv = model.calculate_ef(xyz, at, box_size, descriptors_only=True)
     dv_model0 = np.array(
         [
             1.0,
@@ -88,3 +88,10 @@ def test_calculate_ef_model0():
         ei, _ = model.calculate_ef(xyzi[i], at, box_size, subsel=[0, 3])
         e[i] = ei
     assert np.allclose(e, 2 / (2 ** (1 / 2) * dists))
+
+
+def test_calculate_ef_model1():
+    model, xyz, box_size, at = get_model1()
+    e, f = model.calculate_ef(xyz, at, box_size)
+    assert not np.allclose(f, np.zeros(f.shape))
+    assert not np.allclose(e.item(), 0.0)
