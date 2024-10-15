@@ -70,24 +70,27 @@ class NumpyDataset(Dataset):
 
 
 class h5pyDataset:
-    def __init__(self, fdir, device):
+    def __init__(self, fpath, device):
         self.device = device
-        self.h5f = h5py.File(f"{fdir}/transition1x.h5", "r")
+        self.h5f = h5py.File(fpath, "r")
         self.data = self.h5f["data"]
         self.subsel = []
+        self.Nsamples = 12
 
     def get_sample(self, idx):
-        raise NotImplementedError
+        print("[INFO] get_sample(idx) not implemented. Giving you a random sample.")
+        return self.get_random_sample()
 
     def get_random_sample(self):
         sys = self.data[np.random.choice(list(self.data.keys()))]
-        rxn = sys[np.random.choice(list(sys.keys()))]
-        state = np.random.choice(["product", "reactnt", "transition_state"])
+        rxns = sys[np.random.choice(list(sys.keys()))]
+        rxn = rxns[np.random.choice(list(rxns.keys()))]
+        state = np.random.choice(["product", "reactant", "transition_state"])
         conf = rxn[state]
         idx = np.random.choice(conf["positions"].shape[0])
         xyz = torch.tensor(conf["positions"][idx], requires_grad=True)
         fk = [i for i in rxn.keys() if "forces" in i][0]
         frc = torch.tensor(conf[fk][idx])
         at = torch.tensor(conf["atomic_numbers"])
-        box = torch.tensor([1e16, 1e16, 1e16])
-        return xyz, frc, box, at, self.subsel
+        box = torch.tensor([1e9, 1e9, 1e9])
+        return xyz, frc, at, box, self.subsel
