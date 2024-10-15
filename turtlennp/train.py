@@ -90,10 +90,16 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
                 subsel=subselt,
             )
             losst = loss_subsel(ftest, frct, subsel)
+            if subsel:
+                mae_fpred = torch.mean(torch.abs(fpred[subsel])).item()
+                mae_f = torch.mean(torch.abs(frci[subsel]))
+            else:
+                mae_fpred = torch.mean(torch.abs(fpred)).item()
+                mae_f = torch.mean(torch.abs(frci))
             msg = (
                 f"{epoch} {losst.item()} {loss.item()} "
-                f"{torch.mean(torch.abs(fpred[subsel])).item()} "
-                f"{torch.mean(torch.abs(frci[subsel]))} "
+                f"{mae_fpred} "
+                f"{mae_f} "
                 f"{scheduler.get_last_lr()[0]}"
             )
             print(msg)
@@ -127,28 +133,28 @@ def main():
         "a_sel": [4, 4, 4, 4],  # angular info of the N nearest atoms of type i
         "sel": [4, 4, 4, 4],  # radial info of N nearest atoms of type i
         "at_map": {1: 0, 6: 1, 7: 2, 8: 3},  # just to save it as a model prop
-        "epochs": int(2e6),  # number of training loops
+        "epochs": int(50),  # number of training loops
         # if given, we continue training with this model
         "restart_model": False,
         "device": "cpu",
         "num_threads": 1,
         "dtype": dtype,
         "save_every": 1000,  # save model every this many steps
-        "log_every": 100,  # log output every this many steps
+        "log_every": 1,  # log output every this many steps
         "test_frame": 3,  # [4,2],
         "test_dataset": 0,
         "norm_load": False,  # "res_diels_very_small.npy", #False,
         "norm_N": [10],
         "sel_prob": [1.0],
-        "norm_mode": ["linear"],
+        "norm_mode": ["random"],
     }
 
     device = torch.device(opts["device"])
     torch.set_num_threads(opts["num_threads"])
     torch.set_num_interop_threads(opts["num_threads"])
 
-    # trans1xdat = DatasetTransition1x(".", device)
-    datasets = [DatasetDiels(".", device)]
+    datasets = [h5pyDataset("./transition1x.h5", device)]
+   # datasets = [DatasetDiels(".", device)]
 
     if opts["restart_model"]:
         model = torch.load(opts["restart_model"])
