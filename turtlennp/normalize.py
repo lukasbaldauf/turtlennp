@@ -48,9 +48,9 @@ def normalize(m, datasets, N=[100], mode=["linear"]):
     for i, dataset in enumerate(datasets):
         for j in tqdm.tqdm(range(N[i])):
             if mode[i] == "linear":
-                xyz, _, at, box, ss = dataset.get_sample(j)
+                xyz, _, _, at, box, ss = dataset.get_sample(j)
             elif mode[i] == "random":
-                xyz, _, at, box, ss = dataset.get_random_sample()
+                xyz, _, _, at, box, ss = dataset.get_random_sample()
             else:
                 raise ValueError("No such normalizeation mode:", mode)
             dv = m.calculate_ef(xyz, at, box, subsel=ss, descriptors_only=True)

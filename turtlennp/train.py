@@ -7,13 +7,27 @@ from turtlennp.model import Model
 from turtlennp.normalize import normalize
 
 
-def loss_subsel(f, f0, subsel):
+def loss_subsel(f, f0, e, e0, subsel):
     if subsel:
-        loss = torch.sqrt(torch.mean((f[subsel, :] - f0[subsel, :]) ** 2))
+        lossf = torch.sqrt(torch.mean((f[subsel, :] - f0[subsel, :]) ** 2))
+        losse = torch.tensor(0.0)
     else:
-        loss = torch.sqrt(torch.mean((f - f0) ** 2))
-    return loss
+        lossf = torch.sqrt(torch.mean((f - f0) ** 2))
+        losse = torch.sqrt((e - e0)**2)
+    return losse, lossf
 
+def get_escale_fscale(opts, i):
+    n = opts["epochs"]
+
+    es, fs = opts["loss_ene_frc_start"]
+    ee, fe = opts["loss_ene_frc_end"]
+    
+    escale = ee*(i/n) + es*(1 - i/n) 
+    fscale = fe*(i/n) + fs*(1 - i/n) 
+    tot = escale + fscale
+    escale = escale / tot
+    fscale = fscale / tot
+    return escale, fscale
 
 def normalize_features(model, datasets, opts):
     """Standardize the dataset features."""
@@ -40,7 +54,7 @@ def normalize_features(model, datasets, opts):
         model.norm[:, :, 1] = torch.clip(model.norm[:, :, 1], 0.01)
 
 
-def train_model(m, datasets, opts, device, logfile="out.log"):
+def train_model(m, datasets, opts, device, logfile="out1.log"):
     """Trains the model."""
     params_to_train = []
     for atomic_network in m.networks:
@@ -52,12 +66,12 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
 
     t_idx = opts["test_frame"]  # Validation example index
     t_set = opts["test_dataset"]
-    xyzt, frct, att, boxt, subselt = datasets[t_set].get_sample(t_idx)
+    xyzt, frct, enet, att, boxt, subselt = datasets[t_set].get_sample(t_idx)
 
     with open(logfile, "a") as wfile:
         wfile.write(str(opts) + "\n")
 
-    msg = "Epoch  losst  loss  mean(abs(pred_force))  mean(abs(force))  lr"
+    msg = "Epoch  rmse_tf rmse_te rmse_e  rmse_f  mean(abs(pred_force))  mean(abs(force))  lr es fs"
     print(msg)
     with open(logfile, "a") as wfile:
         wfile.write(msg + "\n")
@@ -67,7 +81,7 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
 
         # Random batch selection
         dataset = datasets[np.random.randint(len(datasets))]
-        xyzi, frci, at, box, subsel = dataset.get_random_sample()
+        xyzi, frci, enei, at, box, subsel = dataset.get_random_sample()
 
         # Model prediction
         epred, fpred = m.calculate_ef(
@@ -78,7 +92,10 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
             attach_grad=True,
         )
 
-        loss = loss_subsel(fpred, frci, subsel)
+        escale, fscale = get_escale_fscale(opts, epoch)
+        rmse_e, rmse_f = loss_subsel(fpred, frci, epred, enei, subsel)
+        rmse_e = rmse_e/frci.shape[0]
+        loss = escale*rmse_e + fscale*rmse_f
         loss.backward()
 
         # Periodic logging and saving
@@ -89,7 +106,10 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
                 boxt,
                 subsel=subselt,
             )
-            losst = loss_subsel(ftest, frct, subsel)
+            rmse_te, rmse_tf = loss_subsel(ftest, frct, etest, enet, subselt)
+            rmse_te = rmse_te/frct.shape[0]
+            losst = escale * rmse_te + fscale * rmse_tf
+
             if subsel:
                 mae_fpred = torch.mean(torch.abs(fpred[subsel])).item()
                 mae_f = torch.mean(torch.abs(frci[subsel]))
@@ -97,10 +117,13 @@ def train_model(m, datasets, opts, device, logfile="out.log"):
                 mae_fpred = torch.mean(torch.abs(fpred)).item()
                 mae_f = torch.mean(torch.abs(frci))
             msg = (
-                f"{epoch} {losst.item()} {loss.item()} "
-                f"{mae_fpred} "
-                f"{mae_f} "
-                f"{scheduler.get_last_lr()[0]}"
+                f"{epoch} {losst.item():.5f} {loss.item():.5f} "
+                f"{rmse_te.item():.5f} {rmse_tf.item():.5f} "
+                f"{rmse_e.item():.5f} {rmse_f.item():.5f} "
+                f"{mae_fpred:.5f} "
+                f"{mae_f:.5f} "
+                f"{scheduler.get_last_lr()[0]:.3e} "
+                f"{escale:.3f} {fscale:.3f}"
             )
             print(msg)
             with open(logfile, "a") as wfile:
@@ -122,38 +145,42 @@ def main():
 
     # Configuration options
     opts = {
-        "comment": "diels_very_small",  # all files are saved with this prefix
-        "architecture": [40, 30, 20, 10, 1],  # network architecture
+        "comment": "diels_medium",  # all files are saved with this prefix
+        "architecture": [80, 40, 20, 10, 1],  # network architecture
         "lr": 1e-3,  # initial learning rate
-        "subsel": torch.tensor([i for i in range(6)]),  # subselection
-        "cutoff": 4.0,  # ignore atoms beyond this cutoff
+        "cutoff": torch.inf,  # ignore atoms beyond this cutoff
         "gamma": 0.9,  # scale lr by this factor every 'every' steps
-        "lr_every": 1000,  # update lr every this many steps
+        "lr_every": 40000,  # update lr every this many steps
         "batch_size": 1,  # nr. of frames to pass treat each iteration
         "a_sel": [4, 4, 4, 4],  # angular info of the N nearest atoms of type i
-        "sel": [4, 4, 4, 4],  # radial info of N nearest atoms of type i
+        "sel": [12, 12, 12, 12],  # radial info of N nearest atoms of type i
         "at_map": {1: 0, 6: 1, 7: 2, 8: 3},  # just to save it as a model prop
-        "epochs": int(50),  # number of training loops
+        "epochs": int(2e6),  # number of training loops
         # if given, we continue training with this model
         "restart_model": False,
         "device": "cpu",
         "num_threads": 1,
         "dtype": dtype,
-        "save_every": 1000,  # save model every this many steps
-        "log_every": 1,  # log output every this many steps
+        "save_every": 10000,  # save model every this many steps
+        "log_every": 100,  # log output every this many steps
         "test_frame": 3,  # [4,2],
         "test_dataset": 0,
-        "norm_load": False,  # "res_diels_very_small.npy", #False,
-        "norm_N": [10],
+        "loss_ene_frc_start":[0,1],
+        "loss_ene_frc_end":[0,1],
+        "norm_load": "/home/lukasb/model_diels0/res_diels_medium.npy", #False,
+        "norm_N": [10000],
         "sel_prob": [1.0],
-        "norm_mode": ["random"],
+        "norm_mode": ["linear"],
     }
 
     device = torch.device(opts["device"])
     torch.set_num_threads(opts["num_threads"])
     torch.set_num_interop_threads(opts["num_threads"])
 
-    datasets = [h5pyDataset("./transition1x.h5", device)]
+    datasets = [
+            #h5pyDataset("/home/lukasb/Transition1x/data/transition1x.h5", device),
+            NumpyDataset("/home/lukasb/train_diels/", device),
+            ]
    # datasets = [DatasetDiels(".", device)]
 
     if opts["restart_model"]:

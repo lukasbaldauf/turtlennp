@@ -101,32 +101,33 @@ def get_local_frame_vectors(
         l_dist = local_frame_dist.unsqueeze(-1)
         inf_vals = torch.where(l_dist == torch.inf)
         if len(inf_vals[1]) > 0:
-            raise NotImplementedError(
+            print(
                 f"Atoms {inf_vals[1]} has less than 2 neighbors!",
                 "Can't construct local frame, but this might not be",
                 "neccessary if this atom is not part of the subselection.",
                 "Increase cutoff or implement it so that it works.",
             )
-        l_xyz = torch.gather(dm, 1, l_idx)
-        l_xyz = l_xyz / (l_dist + epsilon)
-        a_dist = a_dist.unsqueeze(-1)
-        a_xyz = a_xyz / (a_dist + epsilon)
-        # find rotation matrix
-        r0 = l_xyz[:, 0, :]  # Shape: (Nf, Na, 3)
-        r1 = l_xyz[:, 1, :]  # Shape: (Nf, Na, 3)
-        dot_product = torch.sum(r0 * r1, dim=-1, keepdim=True)
-        v2 = r1 - dot_product * r0
-        v2 = v2 / v2.norm(dim=-1, keepdim=True)
-        v3 = torch.cross(r0, r1, dim=-1)
-        v3 = v3 / v3.norm(dim=-1, keepdim=True)
-        A = torch.stack([r0, v2, v3], dim=-2)
-        # rotate the coordinates
-        a_xyz = torch.einsum("...ij,...kj->...ki", A, a_xyz)
-        # Then scale by 1/rij
-        a_xyz = a_xyz / (a_dist + epsilon)
-        descriptor_dists[:, -sum(a_sel) * 3 :] = a_xyz.reshape(
-            *descriptor_dists.shape[:1], sum(a_sel) * 3
-        )
+        else:
+            l_xyz = torch.gather(dm, 1, l_idx)
+            l_xyz = l_xyz / (l_dist + epsilon)
+            a_dist = a_dist.unsqueeze(-1)
+            a_xyz = a_xyz / (a_dist + epsilon)
+            # find rotation matrix
+            r0 = l_xyz[:, 0, :]  # Shape: (Nf, Na, 3)
+            r1 = l_xyz[:, 1, :]  # Shape: (Nf, Na, 3)
+            dot_product = torch.sum(r0 * r1, dim=-1, keepdim=True)
+            v2 = r1 - dot_product * r0
+            v2 = v2 / v2.norm(dim=-1, keepdim=True)
+            v3 = torch.cross(r0, r1, dim=-1)
+            v3 = v3 / v3.norm(dim=-1, keepdim=True)
+            A = torch.stack([r0, v2, v3], dim=-2)
+            # rotate the coordinates
+            a_xyz = torch.einsum("...ij,...kj->...ki", A, a_xyz)
+            # Then scale by 1/rij
+            a_xyz = a_xyz / (a_dist + epsilon)
+            descriptor_dists[:, -sum(a_sel) * 3 :] = a_xyz.reshape(
+                *descriptor_dists.shape[:1], sum(a_sel) * 3
+            )
     return descriptor_dists
 
 

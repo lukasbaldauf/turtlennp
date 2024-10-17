@@ -18,6 +18,7 @@ class Dataset(ABC):
         Returns:
             xyz: atomic coordinates
             frc: the forces
+            ene: the energy
             at: atomic numbers
             box: box vectors
             subsel: atomic subselection
@@ -30,6 +31,7 @@ class Dataset(ABC):
         Returns:
             xyz: atomic coordinates
             frc: the forces
+            ene: the energy
             at: atomic numbers
             box: box vectors
             subsel: atomic subselection
@@ -51,18 +53,19 @@ class NumpyDataset(Dataset):
             self.box = torch.tensor([1e16, 1e16, 1e16])
 
         # load subsel if exists, else []
-        fsubsel = pathlib.Path(f"{dir}/subsel.npy")
+        fsubsel = pathlib.Path(fdir) / "subsel.npy"
         if fsubsel.exists():
             self.subsel = list(np.load(f"{fdir}/subsel.npy"))
         else:
             self.subsel = []
+        print("Subsel", self.subsel)
 
         self.Nsamples = self.xyz.shape[0]
 
     def get_sample(self, idx):
         xyzi = self.xyz[idx].requires_grad_(True)
         frci = self.frc[idx]
-        return xyzi, frci, self.at, self.box, self.subsel
+        return xyzi, frci, 0.0, self.at, self.box, self.subsel
 
     def get_random_sample(self):
         idx = np.random.randint(self.Nsamples)
@@ -75,7 +78,10 @@ class h5pyDataset:
         self.h5f = h5py.File(fpath, "r")
         self.data = self.h5f["data"]
         self.subsel = []
-        self.Nsamples = 12
+        self.Nsamples = 1e5
+        self.mean_e = -7653.337455462715
+        self.std_e = 1712.1638370170933
+
 
     def get_sample(self, idx):
         print("[INFO] get_sample(idx) not implemented. Giving you a random sample.")
@@ -83,14 +89,16 @@ class h5pyDataset:
 
     def get_random_sample(self):
         sys = self.data[np.random.choice(list(self.data.keys()))]
-        rxns = sys[np.random.choice(list(sys.keys()))]
-        rxn = rxns[np.random.choice(list(rxns.keys()))]
+        rxn = sys[np.random.choice(list(sys.keys()))]
+        #rxn = rxns[np.random.choice(list(rxns.keys()))]
         state = np.random.choice(["product", "reactant", "transition_state"])
         conf = rxn[state]
         idx = np.random.choice(conf["positions"].shape[0])
         xyz = torch.tensor(conf["positions"][idx], requires_grad=True)
         fk = [i for i in rxn.keys() if "forces" in i][0]
+        ek = [i for i in rxn.keys() if ".energy" in i][0]
         frc = torch.tensor(conf[fk][idx])
+        ene = torch.tensor(conf[ek][idx])
         at = torch.tensor(conf["atomic_numbers"])
         box = torch.tensor([1e9, 1e9, 1e9])
-        return xyz, frc, at, box, self.subsel
+        return xyz, frc, ene - self.mean_e, at, box, self.subsel
