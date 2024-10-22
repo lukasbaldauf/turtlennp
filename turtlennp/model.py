@@ -232,6 +232,7 @@ class Model(nn.Module):
         subsel: list = [],
         attach_grad: bool = False,
         descriptors_only: bool = False,
+        normalize_descriptors: bool = False,
     ):
         """Calculate the energy and forces.
 
@@ -264,7 +265,7 @@ class Model(nn.Module):
             atomtypes,
             subsel,
         )
-        if descriptors_only:
+        if descriptors_only and not normalize_descriptors:
             return descriptors
 
         # standardize the inputs
@@ -277,6 +278,9 @@ class Model(nn.Module):
                 descriptors[atomtypes[subsel] == j] = (
                     descriptors[atomtypes[subsel] == j] - self.norm[j, :, 0]
                 ) / self.norm[j, :, 1]
+
+        if descriptors_only and normalize_descriptors:
+            return descriptors
 
         # Compute energy in a vectorized manner
         energies = torch.zeros(dist.shape[0], device=xyz.device)
@@ -303,3 +307,38 @@ class Model(nn.Module):
             )[0]
 
         return energy, frci
+
+def calculate_ef_devi(
+        models: list,
+        xyz: torch.tensor,
+        atomic_numbers: torch.tensor,
+        box_size: torch.tensor,
+        subsel: list = [],
+    ):
+    atomtypes = torch.tensor(
+            [models[0].typemap[i.item()] for i in atomic_numbers]
+        )
+    descriptors = models[0].calculate_ef(xyz, atomic_numbers, box_size,
+            subsel = subsel, descriptors_only = True, normalize_descriptors = True)
+    N_ = len(subsel) if len(subsel) != 0 else xyz.size(0)
+    frc = torch.zeros((len(models), *xyz.shape), device = xyz.device)
+    ene = torch.zeros(len(models), device = xyz.device)
+    for m, model in enumerate(models):
+        energies = torch.zeros(N_, device=xyz.device)
+        for t, network in enumerate(model.networks):
+            if len(subsel) == 0:
+                mask = atomtypes == t
+            else:
+                mask = atomtypes[subsel] == t
+            if len(mask) > 0:
+                energies[mask] = network(descriptors[mask]).squeeze()
+        energy = torch.sum(energies)
+        frci = -torch.autograd.grad(
+            energy, xyz, grad_outputs=torch.ones_like(energy), retain_graph=True,
+        )[0]
+        frc[m] = frci
+        ene[m] = energy
+
+    frc_devi = torch.sqrt(torch.mean(torch.norm(frc - torch.mean(frc,dim=0),dim=-1)**2,dim=0))
+
+    return torch.mean(energy), torch.mean(frc, dim = 0), frc_devi
