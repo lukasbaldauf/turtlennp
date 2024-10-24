@@ -82,11 +82,8 @@ class H5pyDataset:
         self.device = device
         self.fpath = fpath
         self.h5f = h5py.File(fpath, "r")
-        self.data = self.h5f["data"]
         self.subsel = []
         self.Nsamples = 1e5
-        self.mean_e = -7653.337455462715
-        self.std_e = 1712.1638370170933
 
     def __repr__(self):
         return f"H5pyDataset: {str(pathlib.Path(self.fpath).resolve())}"
@@ -96,14 +93,14 @@ class H5pyDataset:
         return self.get_random_sample()
 
     def get_random_sample(self):
-        sys = self.data[np.random.choice(list(self.data.keys()))]
+        sys = self.h5f[np.random.choice(list(self.h5f.keys()))]
         rxn = sys[np.random.choice(list(sys.keys()))]
-        idx = np.random.choice(rxn["positions"].shape[0])
-        xyz = torch.tensor(rxn["positions"][idx], requires_grad=True)
+        idx = np.random.choice(rxn["coordinates"].shape[0])
+        xyz = torch.tensor(rxn["coordinates"][idx], requires_grad=True)
         fk = [i for i in rxn.keys() if "forces" in i][0]
-        ek = [i for i in rxn.keys() if ".energy" in i][0]
+        ek = [i for i in rxn.keys() if "energies" in i][0]
         frc = torch.tensor(rxn[fk][idx])
         ene = torch.tensor(rxn[ek][idx])
         at = torch.tensor(rxn["atomic_numbers"])
         box = torch.tensor([1e9, 1e9, 1e9])
-        return xyz, frc, ene - self.mean_e, at, box, self.subsel
+        return xyz, frc/0.0433641, ene/0.0433641, at, box, self.subsel
