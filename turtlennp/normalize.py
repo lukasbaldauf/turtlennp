@@ -52,7 +52,7 @@ def normalize(m, datasets, N=[100], mode=["linear"]):
             elif mode[i] == "random":
                 xyz, _, _, at, box, ss = dataset.get_random_sample()
             else:
-                raise ValueError("No such normalizeation mode:", mode)
+                raise ValueError(f"No such normalizeation mode: '{mode[i]}'")
             dv = m.calculate_ef(xyz, at, box, subsel=ss, descriptors_only=True)
             dv = dv.cpu().detach().numpy()
             if ss:
