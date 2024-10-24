@@ -41,6 +41,7 @@ class Dataset(ABC):
 class NumpyDataset(Dataset):
     def __init__(self, fdir, device):
         self.device = device
+        self.fdir = fdir
         self.xyz = torch.tensor(np.load(f"{fdir}/xyz.npy"), device=device)
         self.frc = torch.tensor(np.load(f"{fdir}/frc.npy"), device=device)
         self.at = torch.tensor(np.load(f"{fdir}/at.npy"), device=device)
@@ -62,6 +63,10 @@ class NumpyDataset(Dataset):
 
         self.Nsamples = self.xyz.shape[0]
 
+    def __repr__(self):
+        return f"NumpyDataset: {str(pathlib.Path(self.fdir).resolve())}"
+
+
     def get_sample(self, idx):
         xyzi = self.xyz[idx].requires_grad_(True)
         frci = self.frc[idx]
@@ -75,6 +80,7 @@ class NumpyDataset(Dataset):
 class H5pyDataset:
     def __init__(self, fpath, device):
         self.device = device
+        self.fpath = fpath
         self.h5f = h5py.File(fpath, "r")
         self.data = self.h5f["data"]
         self.subsel = []
@@ -82,6 +88,8 @@ class H5pyDataset:
         self.mean_e = -7653.337455462715
         self.std_e = 1712.1638370170933
 
+    def __repr__(self):
+        return f"H5pyDataset: {str(pathlib.Path(self.fpath).resolve())}"
 
     def get_sample(self, idx):
         print("[INFO] get_sample(idx) not implemented. Giving you a random sample.")
