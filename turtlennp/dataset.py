@@ -72,7 +72,7 @@ class NumpyDataset(Dataset):
         return self.get_sample(idx)
 
 
-class h5pyDataset:
+class H5pyDataset:
     def __init__(self, fpath, device):
         self.device = device
         self.h5f = h5py.File(fpath, "r")
@@ -90,15 +90,12 @@ class h5pyDataset:
     def get_random_sample(self):
         sys = self.data[np.random.choice(list(self.data.keys()))]
         rxn = sys[np.random.choice(list(sys.keys()))]
-        #rxn = rxns[np.random.choice(list(rxns.keys()))]
-        state = np.random.choice(["product", "reactant", "transition_state"])
-        conf = rxn[state]
-        idx = np.random.choice(conf["positions"].shape[0])
-        xyz = torch.tensor(conf["positions"][idx], requires_grad=True)
+        idx = np.random.choice(rxn["positions"].shape[0])
+        xyz = torch.tensor(rxn["positions"][idx], requires_grad=True)
         fk = [i for i in rxn.keys() if "forces" in i][0]
         ek = [i for i in rxn.keys() if ".energy" in i][0]
-        frc = torch.tensor(conf[fk][idx])
-        ene = torch.tensor(conf[ek][idx])
-        at = torch.tensor(conf["atomic_numbers"])
+        frc = torch.tensor(rxn[fk][idx])
+        ene = torch.tensor(rxn[ek][idx])
+        at = torch.tensor(rxn["atomic_numbers"])
         box = torch.tensor([1e9, 1e9, 1e9])
         return xyz, frc, ene - self.mean_e, at, box, self.subsel
