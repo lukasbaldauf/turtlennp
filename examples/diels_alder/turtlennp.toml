@@ -1,0 +1,26 @@
+comment = "diels_medium"  # all files are saved with this prefix
+architecture =  [80, 40, 20, 10, 1]  # network architecture
+lr =  1e-3  # initial learning rate
+cutoff = inf  # ignore atoms beyond this cutoff
+gamma =  0.9  # scale lr by this factor every 'every' steps
+lr_every =  40000  # update lr every this many steps
+batch_size = 1  # nr. of frames to pass treat each iteration
+a_sel = [4, 4, 4]  # angular info of the N nearest atoms of type i
+sel =  [12, 12, 12]  # radial info of N nearest atoms of type i
+at_map = {1 = 0, 6 = 1, 8 = 2}  # just to save it as a model prop
+epochs =  2000000  # number of training loops
+restart_model =  false # if fpath is given, we continue training with this model
+device = "cpu"
+num_threads =  1
+save_every =  10000  # save model every this many steps
+log_every = 100  # log output every this many steps
+test_frame =  3
+test_dataset = 0
+loss_ene_frc_start = [0,1]
+loss_ene_frc_end = [0,1]
+norm_load =  false #"/home/lukasb/model_diels0/res_diels_medium.npy", #False,
+norm_N = [12, 11]
+sel_prob = [0.9, 0.1]
+norm_mode =  ["linear", "linear"]
+datasets = [".", "."]
+dataset_formats = ["np", "np"]

@@ -1,6 +1,8 @@
+import pathlib
 import numpy as np
 import torch
 from torch import optim
+import tomli
 
 from turtlennp.dataset import *
 from turtlennp.model import Model
@@ -21,9 +23,9 @@ def get_escale_fscale(opts, i):
 
     es, fs = opts["loss_ene_frc_start"]
     ee, fe = opts["loss_ene_frc_end"]
-    
-    escale = ee*(i/n) + es*(1 - i/n) 
-    fscale = fe*(i/n) + fs*(1 - i/n) 
+
+    escale = ee*(i/n) + es*(1 - i/n)
+    fscale = fe*(i/n) + fs*(1 - i/n)
     tot = escale + fscale
     escale = escale / tot
     fscale = fscale / tot
@@ -80,7 +82,7 @@ def train_model(m, datasets, opts, device, logfile="out1.log"):
         optimizer.zero_grad()
 
         # Random batch selection
-        dataset = datasets[np.random.randint(len(datasets))]
+        dataset = np.random.choice(datasets, p = opts["sel_prob"])
         xyzi, frci, enei, at, box, subsel = dataset.get_random_sample()
 
         # Model prediction
@@ -144,44 +146,23 @@ def main():
     dtype = torch.float32
 
     # Configuration options
-    opts = {
-        "comment": "diels_medium",  # all files are saved with this prefix
-        "architecture": [80, 40, 20, 10, 1],  # network architecture
-        "lr": 1e-3,  # initial learning rate
-        "cutoff": torch.inf,  # ignore atoms beyond this cutoff
-        "gamma": 0.9,  # scale lr by this factor every 'every' steps
-        "lr_every": 40000,  # update lr every this many steps
-        "batch_size": 1,  # nr. of frames to pass treat each iteration
-        "a_sel": [4, 4, 4, 4],  # angular info of the N nearest atoms of type i
-        "sel": [12, 12, 12, 12],  # radial info of N nearest atoms of type i
-        "at_map": {1: 0, 6: 1, 7: 2, 8: 3},  # just to save it as a model prop
-        "epochs": int(2e6),  # number of training loops
-        # if given, we continue training with this model
-        "restart_model": False,
-        "device": "cpu",
-        "num_threads": 1,
-        "dtype": dtype,
-        "save_every": 10000,  # save model every this many steps
-        "log_every": 100,  # log output every this many steps
-        "test_frame": 3,  # [4,2],
-        "test_dataset": 0,
-        "loss_ene_frc_start":[0,1],
-        "loss_ene_frc_end":[0,1],
-        "norm_load": "/home/lukasb/model_diels0/res_diels_medium.npy", #False,
-        "norm_N": [10000],
-        "sel_prob": [1.0],
-        "norm_mode": ["linear"],
-    }
+    with open("turtlennp.toml", "rb") as readfile:
+        opts = tomli.load(readfile)
+    print(opts)
+
+    opts["dtype"] = dtype
+    opts["at_map"] = {int(k):v for k,v in opts["at_map"].items()}
 
     device = torch.device(opts["device"])
     torch.set_num_threads(opts["num_threads"])
     torch.set_num_interop_threads(opts["num_threads"])
 
-    datasets = [
-            #h5pyDataset("/home/lukasb/Transition1x/data/transition1x.h5", device),
-            NumpyDataset("/home/lukasb/train_diels/", device),
-            ]
-   # datasets = [DatasetDiels(".", device)]
+    datasets = []
+    for fpath, dformat in zip(opts["datasets"], opts["dataset_formats"]):
+        if dformat == "np":
+            datasets.append(NumpyDataset(fpath, device))
+        elif dformat == "h5":
+            datasets.append(H5pyDataset(fpath, device))
 
     if opts["restart_model"]:
         model = torch.load(opts["restart_model"])
